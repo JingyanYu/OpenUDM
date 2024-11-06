@@ -40,14 +40,13 @@ def RevPolarityStandardise(ras_2darray, mask_2darray,novalue_data):
 #    Create a 2D numpy array outputCoverage of the same size as summedLayerArea, filled with 1s
 #    Assign 0 to elements in outputCoverage where input layer element value > layerThresholdArea, indicating 0 suitability
 #    Assign 0 to elements in outputCoverage where summedLayerArea > summedThresholdArea, indicating 0 suitability
-# 6. Write outputCoverage to a raster file with header
+# 6. Write outputCoverage to a raster file with header, which is the constraint/suitability layer.
 # 7. Create a 2D numpy array currentDev of the same size as summedLayerArea, filled with zeros
-#    For layers in devFlag with value 1, assign 1 to elements in currentDev where layer value > corresponding layerThresholdArea
+#    For layers in devFlag with value 1, assign 1 to elements in currentDev where layer value > corresponding layerThresholdArea, indicating developed.
+#     Write currentDev to a raster file with header, which is the current development layer.
 def RasteriseAreaThresholds(swap_path, header_values, header_text, constraint_ras, current_dev_ras, 
                             constraints_tbl, num_constraints, coverage_threshold):
-    layerRasStr = pd.read_csv(constraints_tbl, usecols=[0]).values.flatten()
-    devFlag = pd.read_csv(constraints_tbl, usecols=[1]).values.flatten()
-    layerThreshold = pd.read_csv(constraints_tbl, usecols=[2]).values.flatten()
+    layerRasStr, devFlag, layerThreshold = pd.read_csv(constraints_tbl, usecols=[0, 1, 2]).values.T
     inputCoverage = [np.loadtxt(os.path.join(swap_path, layerRasStr[i]), skiprows=6) for i in range(num_constraints)]
     summedThresholdArea = (coverage_threshold / 100) * (header_values[4] ** 2)
     layerThresholdArea = [layerThreshold[i] / 100 * header_values[4] ** 2 for i in range(num_constraints)]
@@ -59,6 +58,7 @@ def RasteriseAreaThresholds(swap_path, header_values, header_text, constraint_ra
     with open(constraint_ras, 'w') as f:
             f.write(''.join(header_text))
             np.savetxt(f, outputCoverage, fmt='%1.0f')
+    
     currentDev = np.zeros(summedLayerArea.shape)
     for i in range(num_constraints):
         if devFlag[i] == 1:

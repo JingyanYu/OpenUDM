@@ -33,13 +33,13 @@ def MaskedWeightedSum(bval, constraint_ras, num_attractors, attractors_tbl, cell
     sumWgt = sum(dWgt)
     dNormWgt = dWgt / sumWgt
     dVec = [np.loadtxt(os.path.join(swap_path, dRasStr[i]), skiprows=6) for i in range(num_attractors)]
-    result = sum(dVec[i] * dNormWgt[i] for i in range(num_attractors))
+    summed_attractor_layer = sum(dVec[i] * dNormWgt[i] for i in range(num_attractors))
     if rval:
-        result = np.ones((header_values[1],header_values[0]))-result
+        summed_attractor_layer = np.ones((header_values[1],header_values[0]))-summed_attractor_layer
     constraint_layer = np.loadtxt(constraint_ras, skiprows=6)
-    result = constraint_layer * result
-    result[constraint_layer == header_values[-1]] = header_values[-1]
+    suitability_layer = constraint_layer * summed_attractor_layer
+    suitability_layer[constraint_layer == header_values[-1]] = header_values[-1]
     with open(cell_suit_ras, 'w') as f:
         f.write(''.join(header_text))
-        np.savetxt(f, result, fmt='%1.3f')
+        np.savetxt(f, suitability_layer, fmt='%1.3f')
     

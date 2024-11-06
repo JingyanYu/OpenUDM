@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import RasterToolkit as rt
 import MultiCriteriaEval as mce
+import DevZones as dz
 
 def main(swap_path, output_path):
     # HARDCODED CONTROL PARAMETERS - NOT NEEDED BY USER
@@ -122,6 +123,14 @@ def main(swap_path, output_path):
     # CREATE DEVELOPMENT AREAS
     # hardcoded minimum plot size and moore parameters
     mval = 1 if control_params['moore'] else 0
+    # Generate zonal development patches ID raster
+    dz.CreateDevPatch(bval, parameters['minimum_development_area'], mval, raster_files['constraint_ras'], num_zones,
+                   raster_files['dev_area_id_ras'], lines[:6], header_values, swap_path, raster_files['zone_id_ras'])
+    #COMPUTE DEVELOPMENT AREA SUITABILITY
+    dz.DevZoneAVGSuit(bval, raster_files['dev_area_id_ras'], raster_files['cell_suit_ras'], raster_files['dev_area_suit_ras'], 
+                   lines[:6], header_values, swap_path)
+    print("Development area suitability computed.")
 
+    
     
 

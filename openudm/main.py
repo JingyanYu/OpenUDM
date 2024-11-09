@@ -31,11 +31,10 @@ def main(swap_path, output_path):
         'cell_pph_ras': 'out_cell_pph.asc'
     }
 
-    raster_files['rast_hdr'] = os.path.join(swap_path, raster_files['rast_hdr'])
-    raster_files['zone_id_ras'] = os.path.join(swap_path, raster_files['zone_id_ras'])
-
     for key in raster_files:
-        if key not in ['rast_hdr', 'zone_id_ras']:
+        if key in ['rast_hdr', 'zone_id_ras', 'density_ras']:
+            raster_files[key] = os.path.join(swap_path, raster_files[key])
+        else:
             raster_files[key] = os.path.join(output_path, raster_files[key])
 
     # TABLE NAMES
@@ -49,10 +48,12 @@ def main(swap_path, output_path):
         'metadata_tbl': 'out_cell_metadata.csv'
     }
 
-    for key in ['constraints_tbl', 'attractors_tbl', 'population_tbl', 'parameters_tbl']:
-        table_files[key] = os.path.join(output_path, table_files[key])
-    for key in ['overflow_tbl', 'density_tbl', 'metadata_tbl']:
-        table_files[key] = os.path.join(swap_path, table_files[key])
+    for key in table_files:
+        if key in ['overflow_tbl', 'metadata_tbl']:
+            table_files[key] = os.path.join(output_path, table_files[key])
+        else:
+            table_files[key] = os.path.join(swap_path, table_files[key])
+
 
 
     # IMPORT PARAMETERS
@@ -131,6 +132,6 @@ def main(swap_path, output_path):
                    lines[:6], header_values, swap_path)
     print("Development area suitability computed.")
 
-    
+
     
 

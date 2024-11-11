@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 
 #Function RunModel
-def RunModel(parameters, table_files, raster_files,header_values,zonal_dwellings_per_cell=0,zonal_reqDwellings=[]):
+def RunModel(num_zones,parameters, table_files, raster_files,header_values,zonal_dwellings_per_cell=0,zonal_reqDwellings=[]):
     maxDevRate = parameters['maximum_plot_size']
 
     #read from population.csv admin_zone, current_population, future_population
@@ -12,10 +12,6 @@ def RunModel(parameters, table_files, raster_files,header_values,zonal_dwellings
     #Load denstity from raster - currently imported from parameters.csv to be false. It will be read from density.asc and create a layer with values representing dwellings.
 
     zone_id_ras = np.loadtxt(raster_files['zone_id_ras'], skiprows=6)
-    dev_area_patchid_array = np.loadtxt(raster_files['dev_area_id_ras'], skiprows=6)
-    dev_area_suit_array = np.loadtxt(raster_files['dev_area_suit_ras'], skiprows=6)
-    cell_suit_ras = np.loadtxt(raster_files['cell_suit_ras'], skiprows=6)
-    current_dev_ras = np.loadtxt(raster_files['current_dev_ras'], skiprows=6)
     adminzone_idx = np.unique(zone_id_ras)
     adminzone_idx = adminzone_idx[adminzone_idx!=header_values[5]]
 
@@ -33,10 +29,25 @@ def RunModel(parameters, table_files, raster_files,header_values,zonal_dwellings
     # for each admin zone, sum number of cells of all its patches, compare with the number of cells of required development
     num_suitCells = [(dev_area_patchid_array[zone_id_ras==zone_label]>0).sum() for zone_label in adminzone_idx]
     overFlow_array =  num_suitCells < reqDevCells
-
-    #
     
-    return reqDevCells
+
+    #number of non overflow zones
+    num_nonOverflowZones = (overFlow_array==False).sum()
+    num_OverflowZones = num_zones - num_nonOverflowZones
+
+    dev_area_patchid_array = np.loadtxt(raster_files['dev_area_id_ras'], skiprows=6)
+    dev_area_suit_array = np.loadtxt(raster_files['dev_area_suit_ras'], skiprows=6)
+    cell_suit_ras = np.loadtxt(raster_files['cell_suit_ras'], skiprows=6)
+    current_dev_ras = np.loadtxt(raster_files['current_dev_ras'], skiprows=6)
+
+    
+    if num_OverflowZones > 0:
+        for i in range(num_OverflowZones):
+            new_development = DevelopOverflowZones(current_dev_ras,num_OverflowZones,reqDevCells,dev_area_patchid_array)
+    if num_nonOverflowZones > 0:
+        new_development = DevelopNonOverflowZones(current_dev_ras,num_nonOverflowZones,reqDevCells,dev_area_patchid_array,dev_area_suit_array,cell_suit_ras)
+    
+    return new_development
 
 # Function CalculateRequiredDevelopment
 # possibility 1. zone density provided (previously no zone density provided): zone density * cellsize^2
@@ -56,9 +67,66 @@ def CalculateRequiredDevelopment(zonal_dwellings_per_cell=0,zonal_reqDwellings=[
         zoneDensity = zone_curPop/curDevArea
         cellDensity = zone_curPop/devCells
         reqDevCells = np.ceil(np.vectorize(lambda x, y: x / y)(zone_futPop - zone_curPop, cellDensity))
+
     return reqDevCells
 
 # Function DevelopNonOverflowWards: for admin zones with sufficient development area, 
 # develop from the highest suitable patch.
-def DevelopNonOverflowWards():
+def DevelopNonOverflowZones(current_dev_ras,num_zones,reqDevCells,dev_area_patchid_array,dev_area_suit_array,cell_suit_ras):
+    new_development_ras = current_dev_ras.copy()
+    for i in range(num_zones):
+        num_new_dev_cells = 0
+        patch_idx = np.unique(dev_area_patchid_array)
+        patch_idx = patch_idx[patch_idx>0]
+        patch_suit = np.array([dev_area_suit_array[dev_area_patchid_array==patch][0] for patch in patch_idx])
+        patch_idx = patch_idx[np.argsort(patch_suit)]
+        while num_new_dev_cells < reqDevCells[i]:
+            for patch in reversed(patch_idx):
+                num_patchcells = (dev_area_patchid_array==patch).sum()
+                if num_new_dev_cells + num_patchcells <= reqDevCells[i]:
+                    num_new_dev_cells += num_patchcells
+                    new_development_ras[dev_area_patchid_array==patch] = 1
+                    continue
+                else:
+                    seed_cell_idx = np.unravel_index(np.argmax(cell_suit_ras * (dev_area_patchid_array==patch)), cell_suit_ras.shape)
+                    new_development_ras[seed_cell_idx[0],seed_cell_idx[1]] = 1
+                    num_new_dev_cells += 1
+                    seed_cells = [seed_cell_idx]
+                    patch_cells = np.argwhere(dev_area_patchid_array==patch)
+                    potential_cells = [tuple(cell) for cell in patch_cells]
+                    potential_cells.remove(seed_cell_idx)
+                    while num_new_dev_cells < reqDevCells[i]:
+                        #find 4-connected neighbours of seed_cells
+                        neighbours = find_neighbours(seed_cells[-1],potential_cells)
+                        if neighbours == []:
+                            #find the most suitable cell in potential_cells
+                            cell_suit = [cell_suit_ras[cell] for cell in potential_cells]
+                            max_idx = np.argmax(cell_suit)
+                            new_cell_idx = potential_cells[max_idx]
+                            seed_cells.append(new_cell_idx)
+                            potential_cells.remove(new_cell_idx)   
+                        else:
+                            #find the most suitable cell in neighbours
+                            neighbour_suit = [cell_suit_ras[cell] for cell in neighbours]
+                            #find the corresponding index of the most suitable cell
+                            max_idx = np.argmax(neighbour_suit)
+                            new_cell_idx = neighbours[max_idx]
+                            seed_cells.append(new_cell_idx)
+                            potential_cells.remove(new_cell_idx)
+                        new_development_ras[new_cell_idx[0],new_cell_idx[1]] = 1
+                        num_new_dev_cells += 1
+                            
+    return new_development_ras
+
+# Function find_neighbours: given a list of indices, find the indices of the 4-connect neighbours within the patch
+def find_neighbours(seed_idx,potential_indices_list):
+    neighbours = []
+    potential_indices_set = set(potential_indices_list)
+    for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+        neighbour = (seed_idx[0] + dx, seed_idx[1] + dy)
+        if neighbour in potential_indices_set:
+            neighbours.append(neighbour)
+    return neighbours
+
+def DevelopOverflowZones(current_dev_ras,num_OverflowZones,reqDevCells,dev_area_patchid_array):
     pass

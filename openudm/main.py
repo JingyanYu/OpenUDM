@@ -106,7 +106,8 @@ def main(swap_path, output_path):
     # COVERAGE TO CONSTRAINT
     #generate combined constraint and current development rasters
     rt.RasteriseAreaThresholds(swap_path, header_values, lines[:6], raster_files['constraint_ras'], 
-                               raster_files['current_dev_ras'], table_files['constraints_tbl'], num_constraints, parameters['coverage_threshold'])
+                               raster_files['current_dev_ras'], raster_files['zone_id_ras'],
+                               table_files['constraints_tbl'], num_constraints, parameters['coverage_threshold'])
     
     #mask nodata for region using zone_id_ras
     rt.IRasterSetNoDataToRef(raster_files['constraint_ras'],lines[:6],mask_layer,header_values)
@@ -131,6 +132,9 @@ def main(swap_path, output_path):
     dz.DevZoneAVGSuit(bval, raster_files['dev_area_id_ras'], raster_files['cell_suit_ras'], raster_files['dev_area_suit_ras'], 
                    lines[:6], header_values, swap_path)
     print("Development area suitability computed.")
+
+    new_development = cm.RunModel(num_zones,parameters, table_files, raster_files,header_values,zonal_dwellings_per_cell=0,zonal_reqDwellings=[])
+    return new_development
 
 
     

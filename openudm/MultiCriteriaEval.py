@@ -28,11 +28,11 @@ import os
 # for the elements where there is data, set corresponding elements to constraint_ras value * result value
 # 7. Write result to a raster file at path cell_suit_ras with header
 def MaskedWeightedSum(bval, constraint_ras, num_attractors, attractors_tbl, cell_suit_ras, 
-                      header_text,header_values, swap_path, rval):
+                      header_text,header_values, output_path, rval):
     dRasStr, dWgt = pd.read_csv(attractors_tbl, usecols=[0, 2]).values.T
     sumWgt = sum(dWgt)
     dNormWgt = dWgt / sumWgt
-    dVec = [np.loadtxt(os.path.join(swap_path, dRasStr[i]), skiprows=6) for i in range(num_attractors)]
+    dVec = [np.loadtxt(os.path.join(output_path,'std_' + dRasStr[i]), skiprows=6) for i in range(num_attractors)]
     summed_attractor_layer = sum(dVec[i] * dNormWgt[i] for i in range(num_attractors))
     if rval:
         summed_attractor_layer = np.ones((header_values[1],header_values[0]))-summed_attractor_layer

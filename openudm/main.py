@@ -4,6 +4,7 @@ import numpy as np
 import RasterToolkit as rt
 import MultiCriteriaEval as mce
 import DevZones as dz
+import CellularModel as cm
 
 def main(swap_path, output_path):
     # HARDCODED CONTROL PARAMETERS - NOT NEEDED BY USER

@@ -1,10 +1,10 @@
 import os
 import pandas as pd
 import numpy as np
-import RasterToolkit as rt
-import MultiCriteriaEval as mce
-import DevZones as dz
-import CellularModel as cm
+import source.RasterToolkit as rt
+import source.MultiCriteriaEval as mce
+import source.DevZones as dz
+import source.CellularModel as cm
 
 def main(swap_path, output_path):
     # HARDCODED CONTROL PARAMETERS - NOT NEEDED BY USER
@@ -43,6 +43,7 @@ def main(swap_path, output_path):
         'constraints_tbl': 'constraints.csv',
         'attractors_tbl': 'attractors.csv',
         'population_tbl': 'population.csv',
+        'dwellings_tbl': 'dwellings.csv',
         'parameters_tbl': 'parameters.csv',
         'overflow_tbl': 'out_cell_overflow.csv',
         'density_tbl': 'density.csv',
@@ -120,7 +121,7 @@ def main(swap_path, output_path):
     rval = 1 if control_params['attractor_reverse'] else 0
     # Generate suitability raster
     mce.MaskedWeightedSum(bval, raster_files['constraint_ras'], num_attractors, table_files['attractors_tbl'], raster_files['cell_suit_ras'], 
-                      lines[:6],header_values, swap_path, rval)
+                      lines[:6],header_values, output_path, rval)
     print("Suitability raster generated.")
 
     # CREATE DEVELOPMENT AREAS
@@ -134,7 +135,8 @@ def main(swap_path, output_path):
                    lines[:6], header_values, swap_path)
     print("Development area suitability computed.")
 
-    new_development = cm.RunModel(num_zones,parameters, table_files, raster_files,header_values,zonal_dwellings_per_cell=0,zonal_reqDwellings=[])
+    new_development = cm.RunModel(num_zones,parameters, table_files, raster_files,header_values)
+    print("New development areas generated.")
     return new_development
 
 

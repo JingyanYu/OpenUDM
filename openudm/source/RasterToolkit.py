@@ -46,19 +46,24 @@ def RevPolarityStandardise(ras_2darray, mask_2darray,novalue_data):
 #     Write currentDev to a raster file with header, which is the current development layer.
 def RasteriseAreaThresholds(swap_path, header_values, header_text, constraint_ras, current_dev_ras, zone_id_ras,
                             constraints_tbl, num_constraints, coverage_threshold):
+    #Reading Constraints Table
     layerRasStr, devFlag, layerThreshold = pd.read_csv(constraints_tbl, usecols=[0, 1, 2]).values.T
+    #Loading Input Coverage Layers
     inputCoverage = [np.loadtxt(os.path.join(swap_path, layerRasStr[i]), skiprows=6) for i in range(num_constraints)]
+    #Calculating Threshold Areas
     summedThresholdArea = (coverage_threshold / 100) * (header_values[4] ** 2)
     layerThresholdArea = [layerThreshold[i] / 100 * header_values[4] ** 2 for i in range(num_constraints)]
     summedLayerArea = sum(inputCoverage)
+    #Creating Output Coverage
     outputCoverage = np.ones(summedLayerArea.shape)
     for i in range(num_constraints):
         outputCoverage[inputCoverage[i] > layerThresholdArea[i]] = 0
     outputCoverage[summedLayerArea > summedThresholdArea] = 0
+    #Writing Raster to File
     with open(constraint_ras, 'w') as f:
             f.write(''.join(header_text))
             np.savetxt(f, outputCoverage, fmt='%1.0f')
-    
+    #Creating Current Development Layer
     currentDev = np.zeros(summedLayerArea.shape)
     for i in range(num_constraints):
         if devFlag[i] == 1:

@@ -49,8 +49,8 @@ def RunModel(num_zones,parameters, table_files, raster_files,header_values):
     # for each admin zone, sum number of cells of all its patches, compare with the number of cells of required development
     num_suitCells = [(dev_area_patchid_array[zone_id_ras==zone_label]>0).sum() for zone_label in adminzone_idx]
     overFlow_array =  num_suitCells < num_req_cells_zones
-    
 
+    print(overFlow_array)
     #number of non overflow zones
     num_nonOverflowZones = (overFlow_array==False).sum()
     num_OverflowZones = num_zones - num_nonOverflowZones
@@ -59,9 +59,15 @@ def RunModel(num_zones,parameters, table_files, raster_files,header_values):
     # if num_OverflowZones > 0:
     #     for i in range(num_OverflowZones):
     #         new_development = DevelopOverflowZones(current_dev_ras,num_OverflowZones,reqDevCells,dev_area_patchid_array)
+    
+    #Develop non-overflow zones
     if num_nonOverflowZones > 0:
         for i in range(num_nonOverflowZones):
             new_development = develop_one_non_overflow_zone(current_dev_ras, num_req_cells_zones[i], dev_area_patchid_array, dev_area_suit_array, cell_suit_ras, header_values[5])
+    
+    #Develop overflow zones
+    else:
+        pass
     return new_development
 
 
@@ -153,7 +159,7 @@ def calculate_req_cells_DwellingsPerHectare(zone_cur_dwellings, zone_fut_dwellin
     
     # Calculate the required number of cells
     num_cells = np.ceil(dwelling_increase / dwellings_per_hectare)
-    
+        
     return num_cells
 
 # Function CalculateRequiredDevelopment for an admin zone
@@ -214,7 +220,7 @@ def get_patch_suitability(dev_area_patchid_array, dev_area_suit_array, patch_idx
         patch_suit = np.array([dev_area_suit_array[dev_area_patchid_array == patch][0] for patch in patch_idx])
         return patch_suit
 
-# Sorts patch indices based on their suitability scores.
+# Helper funciton: Sorts patch indices based on their suitability scores.
 def sort_patch_indices_by_suitability(patch_idx, patch_suit):
     return patch_idx[np.argsort(patch_suit)]
 
@@ -269,12 +275,12 @@ def update_neighbours(cell_neighbours,neighbours,potential_cells):
 # the new development raster, and the cell suitability raster, this function finds the cell with the highest suitability
 # among the neighbours, develops it, and adds it to the seed cells list.
 # The function updates the seed cells list, the potential cells list, the new development raster, and the number of new development cells.
-def develop_neighbouring_cell(neighbours,seed_cells,potential_cells,new_development_ras,cell_suit_ras):
+def develop_neighbouring_cell(neighbours,seed_cells,potential_cells,new_development_ras,cell_suit_ras,num_new_dev_cells):
+    neighbours = list(neighbours)
     neighbour_suit = [cell_suit_ras[cell] for cell in neighbours]
     max_idx = np.argmax(neighbour_suit)
     new_cell_idx = neighbours[max_idx]
-    seed_cells.append(new_cell_idx)
-    potential_cells.remove(new_cell_idx)
+    seed_cells.add(new_cell_idx)
     new_development_ras[new_cell_idx[0], new_cell_idx[1]] = 1
     num_new_dev_cells += 1
     return new_cell_idx,seed_cells, potential_cells, new_development_ras, num_new_dev_cells
@@ -289,7 +295,7 @@ def develop_one_non_overflow_zone(current_dev_ras, zone_required_cells, dev_area
     new_development_ras = initialize_development_raster(current_dev_ras)
     num_new_dev_cells = 0
     
-    # Get patch indices and suitability
+    # Get patch indices and suitability - prepare to rank patches by average patch suitability
     patch_idx = get_patch_indices(dev_area_patchid_array, nodata_value)
     patch_suit = get_patch_suitability(dev_area_patchid_array, dev_area_suit_array, patch_idx)
     
@@ -298,6 +304,7 @@ def develop_one_non_overflow_zone(current_dev_ras, zone_required_cells, dev_area
     
     # Develop the zone patch by patch
     while num_new_dev_cells < zone_required_cells:
+        print(num_new_dev_cells)
         for patch_id in reversed(patch_idx):
             #Calculate the number of cells in the patch
             num_patchcells = (dev_area_patchid_array == patch_id).sum()
@@ -339,7 +346,7 @@ def develop_one_non_overflow_zone(current_dev_ras, zone_required_cells, dev_area
                     else:
                         while len(neighbours)>0:
                             new_cell_idx,seed_cells, potential_cells, new_development_ras, num_new_dev_cells = develop_neighbouring_cell(neighbours,seed_cells,
-                                                                                                                         potential_cells,new_development_ras,cell_suit_ras)
+                                                                                                                         potential_cells,new_development_ras,cell_suit_ras,num_new_dev_cells)
                             if num_new_dev_cells == zone_required_cells:
                                 break
                             # Find the neighbours of the last added seed cell:

@@ -24,8 +24,8 @@ def main(swap_path, output_path):
         'constraint_ras': 'constraint.asc',
         'current_dev_ras': 'current_development.asc',
         'cell_suit_ras': 'out_cell_suit.asc',
-        'dev_area_id_ras': 'dev_area_id.asc',
-        'dev_area_suit_ras': 'dev_area_suit.asc',
+        'dev_patch_id_ras': 'dev_patch_id.asc',
+        'dev_patch_suit_ras': 'dev_patch_suit.asc',
         'cell_dev_output_ras': 'out_cell_dev.asc',
         'density_ras': 'density.asc',
         'cell_dph_ras': 'out_cell_dph.asc',
@@ -128,10 +128,10 @@ def main(swap_path, output_path):
     # hardcoded minimum plot size and moore parameters
     mval = 1 if control_params['moore'] else 0
     # Generate zonal development patches ID raster
-    dz.CreateDevPatch(bval, parameters['minimum_development_area'], mval, raster_files['constraint_ras'], num_zones,
-                   raster_files['dev_area_id_ras'], lines[:6], header_values, swap_path, raster_files['zone_id_ras'])
+    dz.find_zone_dev_patches(parameters['minimum_development_area'], raster_files['constraint_ras'], num_zones,
+                          raster_files['dev_patch_id_ras'], lines[:6], header_values, raster_files['zone_id_ras'])
     #COMPUTE DEVELOPMENT AREA SUITABILITY
-    dz.DevZoneAVGSuit(bval, raster_files['dev_area_id_ras'], raster_files['cell_suit_ras'], raster_files['dev_area_suit_ras'], 
+    dz.DevZoneAVGSuit(bval, raster_files['dev_patch_id_ras'], raster_files['cell_suit_ras'], raster_files['dev_patch_suit_ras'], 
                    lines[:6], header_values, swap_path)
     print("Development area suitability computed.")
 

@@ -1,78 +1,102 @@
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 
-# Function RunModel: This function runs the main model for urban development.
-# It takes in various parameters including the number of zones, parameters, table files, raster files, header values,
-# and optional parameters for zonal dwellings per cell and zonal required dwellings.
-# The function reads population data, checks development requirements, calculates required development,
-# and develops non-overflow zones based on suitability.
+
+# Function RunModel
 def RunModel(num_zones,parameters, table_files, raster_files,header_values):
 
     # read zone_id_ras
     zone_id_ras = np.loadtxt(raster_files['zone_id_ras'], skiprows=6)
-    adminzone_idx = np.unique(zone_id_ras)
-    adminzone_idx = adminzone_idx[adminzone_idx!=header_values[5]]
 
     # read parameters from parameters.csv
     maximum_plot_size = parameters['maximum_plot_size']
     density_calculation_type = parameters['density_calculation_type']
 
-    # Choose the density calculation type
-    zone_cur_pop, zone_fut_pop,zone_cur_dwellings, zone_fut_dwellings,dwellings_per_hectare=(0,0,0,0,0)
-    if density_calculation_type == 1:
-        #read from population.csv admin_zone, current_population, future_population
-        zoneLabel, zone_cur_pop, zone_fut_pop = pd.read_csv(table_files['population_tbl'], usecols=[1, 2, 3]).values.T
-    if density_calculation_type == 2:
-        #read from dwellings.csv admin_zone, current_dwellings, future_dwellings
-        zoneLabel, zone_cur_dwellings, zone_fut_dwellings = pd.read_csv(table_files['dwellings_tbl'], usecols=[1, 2, 3]).values.T
-    if density_calculation_type == 3:
-        zoneLabel, zone_cur_dwellings, zone_fut_dwellings = pd.read_csv(table_files['dwellings_tbl'], usecols=[1, 2, 3]).values.T
-        dwellings_per_hectare = parameters['dwellings_per_hectare']
+    # Choose the density calculation type and get the zone data accordingly
+    zone_ids,zone_codes, zone_cur_pop, zone_fut_pop, zone_cur_dwellings, zone_fut_dwellings, dwellings_per_hectare = \
+        get_zone_data(density_calculation_type, table_files, parameters)   
 
-     
-    # Check weather each admin zone requires development by population change > 0
-    # original function - CalculatePopulationChange
-    # devReq = (zone_fut_pop - zone_cur_pop)>0
-
-    # Multiple admin zones
+    # Read the patch ID, suitability, cell suitability and current development rasters
     dev_patchid_array = np.loadtxt(raster_files['dev_patch_id_ras'], skiprows=6)
     dev_patch_suit_array = np.loadtxt(raster_files['dev_patch_suit_ras'], skiprows=6)
-    # Same for all admin zones
     cell_suit_ras = np.loadtxt(raster_files['cell_suit_ras'], skiprows=6)
     current_dev_ras = np.loadtxt(raster_files['current_dev_ras'], skiprows=6)
-    #AssignZones pass
-    
+        
     #CalculateRequiredDevelopment
     num_req_cells_zones = [calculate_required_cells(density_calculation_type,
                              current_dev_ras, zone_id_ras, zone_label,
-                             zone_cur_pop, zone_fut_pop,
-                             zone_cur_dwellings, zone_fut_dwellings,
-                             dwellings_per_hectare) for zone_label in adminzone_idx]
-    #FindOverflowWards
-    # for each admin zone, sum number of cells of all its patches, compare with the number of cells of required development
-    num_suitCells = [(dev_patchid_array[zone_id_ras==zone_label]>0).sum() for zone_label in adminzone_idx]
-    overFlow_array =  num_suitCells < num_req_cells_zones
-
+                             zone_cur_pop[zone_label], zone_fut_pop[zone_label],
+                             zone_cur_dwellings[zone_label], zone_fut_dwellings[zone_label],
+                             dwellings_per_hectare) for zone_label in zone_ids]
+        
+    #Find overflow zones: assuming patch id are integers
+    overFlow_array = find_overflow_zones(dev_patchid_array, zone_id_ras, zone_ids, num_req_cells_zones)
+    
     #number of non overflow zones
     num_nonOverflowZones = (overFlow_array==False).sum()
     num_OverflowZones = num_zones - num_nonOverflowZones
-
-    # code need to be changed when dealing with multiple admin zones
-    # if num_OverflowZones > 0:
-    #     for i in range(num_OverflowZones):
-    #         new_development = DevelopOverflowZones(current_dev_ras,num_OverflowZones,reqDevCells,dev_area_patchid_array)
     
     #Develop non-overflow zones
     if num_nonOverflowZones > 0:
-        for i in range(num_nonOverflowZones):
-            new_development = develop_one_non_overflow_zone(current_dev_ras, num_req_cells_zones[i], dev_patchid_array, dev_patch_suit_array, cell_suit_ras, header_values[5])
+        print('Developing ', num_nonOverflowZones, ' non-overflow zones.')
+        # get the indices of non-overflow zones
+        nonOverflow_zones_ids = zone_ids[overFlow_array==False]
+        for zone_id in nonOverflow_zones_ids:
+            new_development = develop_one_non_overflow_zone(current_dev_ras, num_req_cells_zones[zone_id], dev_patchid_array, 
+                                                            dev_patch_suit_array, cell_suit_ras, header_values[5])
     
     #Develop overflow zones
-    else:
-        pass
+    if num_OverflowZones > 0:
+        print('Developing', num_OverflowZones, 'overflow zones.')
+        overflow_zones_ids = zone_ids[overFlow_array==True]
+        for zone_id in overflow_zones_ids:
+            new_development = develop_one_overflow_zone(current_dev_ras,dev_patchid_array, zone_id_ras, zone_id)    
+    
     return new_development
 
+####################################################################################################################
+# Functions related to Runmodel
+####################################################################################################################
+
+# Function get_zone_data: This function reads the zone data based on the density calculation type.
+# If density_calculation_type is 1, it reads the current and future population data.
+# If density_calculation_type is 2, it reads the current and future dwellings data.
+# If density_calculation_type is 3, it reads the current and future dwellings data and the dwellings per hectare value.
+# If density_calculation_type is 4, TBC.
+def get_zone_data(density_calculation_type, table_files, parameters):
+    zone_cur_pop, zone_fut_pop, zone_cur_dwellings, zone_fut_dwellings, dwellings_per_hectare = (0, 0, 0, 0, 0)
+    # Validate the density calculation type
+    if density_calculation_type not in {1, 2, 3, 4}:
+        raise ValueError("density_calculation_type must be an integer in {1, 2, 3, 4}")
+    
+    # Option 1 - Calculate required development based on population change
+    if density_calculation_type == 1:
+        # Read from population.csv admin_zone, current_population, future_population
+        zone_ids,zone_codes, zone_cur_pop, zone_fut_pop = pd.read_csv(table_files['population_tbl'], usecols=[0, 1, 2, 3]).values.T
+        
+    # Option 2 - Calculate required development based on dwellings change
+    elif density_calculation_type == 2:
+        # Read from dwellings.csv admin_zone, current_dwellings, future_dwellings
+        zone_ids,zone_codes, zone_cur_dwellings, zone_fut_dwellings = pd.read_csv(table_files['dwellings_tbl'], usecols=[0, 1, 2, 3]).values.T
+        zone_cur_pop, zone_fut_pop = pd.read_csv(table_files['population_tbl'], usecols=[2, 3]).values.T
+    
+    # Option 3 - Calculate required development based on dwellings change and dwellings per hectare
+    elif density_calculation_type == 3:
+        zone_ids,zone_codes, zone_cur_dwellings, zone_fut_dwellings = pd.read_csv(table_files['dwellings_tbl'], usecols=[0, 1, 2, 3]).values.T
+        dwellings_per_hectare = parameters['dwellings_per_hectare']
+        zone_cur_pop, zone_fut_pop = pd.read_csv(table_files['population_tbl'], usecols=[2, 3]).values.T
+    
+    # Option 4 - Placeholder for variable density calculation methods
+    elif density_calculation_type == 4:
+        pass
+    
+    return zone_ids,zone_codes, zone_cur_pop, zone_fut_pop, zone_cur_dwellings, zone_fut_dwellings, dwellings_per_hectare
+
+# Function find_overflow_zones: This function finds the overflow zones based on the number of required development cells.
+def find_overflow_zones(dev_patchid_array, zone_id_ras, adminzone_idx, num_req_cells_zones):
+    num_suitCells = [(dev_patchid_array[zone_id_ras == zone_label] > 0).sum() for zone_label in adminzone_idx]
+    overFlow_array = np.asarray(num_suitCells) < np.asarray(num_req_cells_zones)
+    return overFlow_array.flatten()
 
 ####################################################################################################################
 # Functions related to calculate required number of development cells
@@ -177,11 +201,7 @@ def calculate_required_cells(density_calculation_type,
                              zone_cur_pop=0, zone_fut_pop=0,
                              zone_cur_dwellings=0, zone_fut_dwellings=0,
                              dwellings_per_hectare=0):
-    
-    # Validate the density calculation type
-    if density_calculation_type not in {1, 2, 3, 4}:
-        raise ValueError("density_calculation_type must be an integer in {1, 2, 3, 4}")
-    
+       
     # Calculate required cells based on population
     if density_calculation_type == 1:
         num_req_cells = calculate_req_cells_population(current_dev_ras, zone_id_ras, zone_label, zone_cur_pop, zone_fut_pop)
@@ -358,26 +378,16 @@ def develop_one_non_overflow_zone(current_dev_ras, zone_required_cells, dev_patc
     return new_development_ras
 
 
-def develop_non_overflow_zones(current_dev_ras, num_zones, reqDevCells, dev_patchid_array, dev_patch_suit_array, cell_suit_ras, nodata_value):
-    new_development_ras = current_dev_ras.copy()
-    for i in range(num_zones):
-        new_development_ras = develop_one_non_overflow_zone(new_development_ras, reqDevCells[i], dev_patchid_array, dev_patch_suit_array, cell_suit_ras, nodata_value)
-    return new_development_ras
-
-
 ####################################################################################################################
 # Functions related to developing Overflow zones
 ####################################################################################################################
 
-
-
-
 # Develop all patch cells in an overflow zone
-def develop_one_overflow_zones(current_dev_ras,dev_patchid_array):
+def develop_one_overflow_zone(current_dev_ras,dev_patchid_array, zone_id_ras, zone_label):
     # Initialize new development raster to be the copy of current development raster
     new_development_ras = initialize_development_raster(current_dev_ras)
 
-    # Develop all patch cells
-    new_development_ras[dev_patchid_array > 0] = 1
+    # Develop all patch cells in the overflow zone and with patch id > 0
+    new_development_ras[(dev_patchid_array > 0) & (zone_id_ras == zone_label)] = 1
 
     return new_development_ras

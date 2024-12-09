@@ -45,13 +45,13 @@ def main(swap_path, output_path):
         'population_tbl': 'population.csv',
         'dwellings_tbl': 'dwellings.csv',
         'parameters_tbl': 'parameters.csv',
-        'overflow_tbl': 'out_cell_overflow.csv',
+        'zone_diagnostic_tbl': 'zone_diagnostic.csv',
         'density_tbl': 'density.csv',
         'metadata_tbl': 'out_cell_metadata.csv'
     }
 
     for key in table_files:
-        if key in ['overflow_tbl', 'metadata_tbl']:
+        if key in ['zone_diagnostic_tbl', 'metadata_tbl']:
             table_files[key] = os.path.join(output_path, table_files[key])
         else:
             table_files[key] = os.path.join(swap_path, table_files[key])
@@ -130,9 +130,9 @@ def main(swap_path, output_path):
     # Generate zonal development patches ID raster
     dz.find_zone_dev_patches(parameters['minimum_development_area'], raster_files['constraint_ras'], num_zones,
                           raster_files['dev_patch_id_ras'], lines[:6], header_values, raster_files['zone_id_ras'])
-    #COMPUTE DEVELOPMENT AREA SUITABILITY
-    dz.DevZoneAVGSuit(bval, raster_files['dev_patch_id_ras'], raster_files['cell_suit_ras'], raster_files['dev_patch_suit_ras'], 
-                   lines[:6], header_values, swap_path)
+    #COMPUTE DEVELOPMENT AREA SUITABILITY   
+    dz.patch_avg_suitability(raster_files['dev_patch_id_ras'], raster_files['cell_suit_ras'], raster_files['dev_patch_suit_ras'],
+                             lines[:6], header_values)
     print("Development area suitability computed.")
 
     new_development = cm.RunModel(num_zones,parameters, table_files, raster_files,header_values)

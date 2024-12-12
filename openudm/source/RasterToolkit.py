@@ -39,16 +39,23 @@ def create_constraint_ras_and_current_dev_ras(path_to_data, header_values, heade
     zone_id_ras_data = np.loadtxt(zone_id_ras, skiprows=6)
     output_constraint_layer = mask_nodatavalue(output_constraint_layer, zone_id_ras_data, header_values)
     # Write Binary Constraint Layer to File
-    write_raster_to_file(output_constraint_layer, constraint_ras, header_text[:6])
+    write_raster_to_file(output_constraint_layer, constraint_ras, header_text)
     
     # Create Current Development Layer
     current_dev_layer = create_current_development_layer(constraint_layers, current_development_flag_list, layer_threshold_area_list, zone_id_ras_data, header_values, num_constraints)
     # Write Current Development Layer to File
-    write_raster_to_file(current_dev_layer, current_dev_ras, header_text[:6])
+    write_raster_to_file(current_dev_layer, current_dev_ras, header_text)
 
+# Function read_constraint_layers: Read constraint layers
+# Raises ValueError if any constraint layer does not have the same dimensions as zone_id_ras
 def read_constraint_layers(constraints_tbl, path_to_data, num_constraints):
     layer_name_list, current_development_flag_list, layer_threshold_list = pd.read_csv(constraints_tbl, usecols=[0, 1, 2]).values.T
     constraint_layers = [np.loadtxt(os.path.join(path_to_data, layer_name_list[i]), skiprows=6) for i in range(num_constraints)]
+    # Check if all constraint layers have the same dimensions as zone_id_ras
+    zone_id_ras_shape = constraint_layers[0].shape
+    for layer in constraint_layers:
+        if layer.shape != zone_id_ras_shape:
+            raise ValueError(f"{layer_name_list[constraint_layers.index(layer)]} does not have the same dimension as zone identity raster")
     return current_development_flag_list, layer_threshold_list, constraint_layers
 
 def calculate_threshold_areas(header_values, coverage_threshold, layer_threshold_list, num_constraints):

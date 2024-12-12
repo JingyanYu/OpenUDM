@@ -14,13 +14,13 @@ def main(path_to_data, path_to_output):
     table_files = generate_table_filepaths(path_to_data, path_to_output)
     parameters = import_parameters(table_files['parameters_tbl'])
     num_zones, num_constraints, num_attractors = print_zones_constraints_attractors(table_files)
-    lines, header_values = read_raster_header(raster_files['zone_id_ras'])
+    header_lines, header_values = read_raster_header(raster_files['zone_id_ras'])
 
     # Standardize attractor layers  
-    standardize_attractor_layers(num_attractors, table_files, path_to_data, path_to_output, lines, header_values[-1])
+    standardize_attractor_layers(num_attractors, table_files, path_to_data, path_to_output, header_lines, header_values[-1])
 
     # Generate the combined constraint layer and the current development rasters   
-    rt.create_constraint_ras_and_current_dev_ras(path_to_data, header_values, lines, raster_files['constraint_ras'], 
+    rt.create_constraint_ras_and_current_dev_ras(path_to_data, header_values, header_lines, raster_files['constraint_ras'], 
                                                  raster_files['current_dev_ras'], raster_files['zone_id_ras'],
                                                  table_files['constraints_tbl'], num_constraints, parameters['coverage_threshold'])
     
@@ -29,15 +29,15 @@ def main(path_to_data, path_to_output):
     rval = 1 if control_params['attractor_reverse'] else 0
     # Generate suitability raster
     mce.multi_criteria_eval(raster_files['constraint_ras'], num_attractors, table_files['attractors_tbl'], raster_files['cell_suit_ras'], 
-                      lines[:6],header_values, path_to_output, rval)
+                      header_lines,header_values, path_to_output, rval)
     print("Cell suitability raster generated.")
 
     # Generate zonal development patches ID raster
     dz.find_zone_dev_patches(parameters['minimum_development_area'], raster_files['constraint_ras'], num_zones,
-                          raster_files['dev_patch_id_ras'], lines[:6], header_values, raster_files['zone_id_ras'])
+                          raster_files['dev_patch_id_ras'], header_lines, header_values, raster_files['zone_id_ras'])
     # Compute average patch suitability   
     dz.patch_avg_suitability(raster_files['dev_patch_id_ras'], raster_files['cell_suit_ras'], raster_files['dev_patch_suit_ras'],
-                             lines[:6], header_values)
+                             header_lines, header_values)
     print("Average patch suitability computed.")
 
     # Run the cellular model
@@ -98,43 +98,59 @@ def generate_table_filepaths(path_to_data, path_to_output):
 def import_parameters(parameters_tbl):
     df = pd.read_csv(parameters_tbl)
     parameters = df.to_dict(orient='records')[0]
-    print("Parameters file imported.")
+    print("Parameters file imported: ", end="")
+    for key, value in parameters.items():
+        print(f"{key} - {value}", end=", ")
+    print()  # To move to the next line after printing all parameters
     return parameters
 
 def print_zones_constraints_attractors(table_files):
     num_zones = len(pd.read_csv(table_files['population_tbl'])) 
     num_constraints = len(pd.read_csv(table_files['constraints_tbl'])) 
     num_attractors = len(pd.read_csv(table_files['attractors_tbl'])) 
-    print(f'Number of zones: {num_zones}')
-    print(f'Number of constraints: {num_constraints}')
-    print(f'Number of attractors: {num_attractors}')
+    print(f'Number of zones: {num_zones}, Number of constraints: {num_constraints}, Number of attractors: {num_attractors}')
     return num_zones, num_constraints, num_attractors
 
+# Function to read raster header
+# This function reads the header of the zone identity raster and returns the header lines and header values
+# The header values are the number of columns, number of rows, xllcorner, yllcorner, cellsize, and nodatavalue
 def read_raster_header(zone_id_ras):
     with open(zone_id_ras, 'r') as f:
         lines = f.readlines()
-        ncols = int(lines[0].split('ncols')[1].split('\n')[0])
-        nrows = int(lines[1].split('nrows')[1].split('\n')[0])
-        xllcorner = float(lines[2].split('xllcorner')[1].split('\n')[0])
-        yllcorner = float(lines[3].split('yllcorner')[1].split('\n')[0])
-        cellsize = float(lines[4].split('cellsize')[1].split('\n')[0])
-        nodatavalue = float(lines[5].split('NODATA_value')[1].split('\n')[0])
+        ncols = int(lines[0].split()[1])
+        nrows = int(lines[1].split()[1])
+        xllcorner = float(lines[2].split()[1])
+        yllcorner = float(lines[3].split()[1])
+        cellsize = float(lines[4].split()[1])
+        nodatavalue = float(lines[5].split()[1])
+        
+        # Print header values
+        print(f'Number of columns: {ncols}, Number of rows: {nrows}, Cellsize: {cellsize}, Nodatavalue: {nodatavalue}')
         header_values = [ncols, nrows, xllcorner, yllcorner, cellsize, nodatavalue]
-    return lines, header_values
+    return lines[:6], header_values
 
-
+# Function to standardize attractor layers
+# This function standardizes the attractor layers by calling the Standardise and RevPolarityStandardise functions from the RasterToolkit module
+# The standardised attractor layers are saved to the output directory with the prefix 'std_'
+# The function raises a ValueError if there is a dimension mismatch between the attractor layer and the mask layer
 def standardize_attractor_layers(num_attractors, table_files, path_to_data, path_to_output, lines, nodatavalue):
     attractorflag_list = pd.read_csv(table_files['attractors_tbl'])[['layer_name','reverse_polarity_flag']].values.tolist()
     mask_layer = np.loadtxt(os.path.join(path_to_data, 'zone_identity.asc'), skiprows=6)
-
+    mask_shape = mask_layer.shape
     for i in range(num_attractors):
         attractor_path = os.path.join(path_to_data, attractorflag_list[i][0])
         rev_attractor_flag = attractorflag_list[i][1]
         attractor_layer = np.loadtxt(attractor_path, skiprows=6)
+        
+        # Exception handling for dimension mismatch
+        if attractor_layer.shape != mask_shape:
+            raise ValueError(f"Dimension mismatch: Attractor layer {attractorflag_list[i][0]} has shape {attractor_layer.shape}, expected {mask_shape}")
+        
         if rev_attractor_flag == 0:
             standarised_attractor_layer = rt.Standardise(attractor_layer, mask_layer, nodatavalue)
         elif rev_attractor_flag == 1:
             standarised_attractor_layer = rt.RevPolarityStandardise(attractor_layer, mask_layer, nodatavalue)
+        
         attractor_output_path = os.path.join(path_to_output, 'std_' + attractorflag_list[i][0])
         with open(attractor_output_path, 'w') as f:
             f.write(''.join(lines[:6]))

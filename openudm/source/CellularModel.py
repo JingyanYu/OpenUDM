@@ -3,7 +3,7 @@ import pandas as pd
 
 
 # Function RunModel
-def RunModel(num_zones,parameters, table_files, raster_files,header_values):
+def run_model(num_zones,parameters, table_files, raster_files,header_values):
 
     # read zone_id_ras
     zone_id_ras = np.loadtxt(raster_files['zone_id_ras'], skiprows=6)

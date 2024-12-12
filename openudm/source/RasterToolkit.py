@@ -2,9 +2,9 @@ import numpy as np
 import pandas as pd
 import os
 
-#Function Standardise, which standardises the values of a matrix to a range of 0 to 1
-#Input: matrix - a 2D numpy array; mask - a 2D numpy array
-#Output: matrix - a 2D numpy array
+############################################################################################################
+# Functions related find_zone_dev_patches
+############################################################################################################
 def Standardise(ras_2darray, mask_2darray,novalue_data):
     #standardise the values of matrix to a range of 0 to 1
     valid_data = ras_2darray[mask_2darray != novalue_data]
@@ -22,64 +22,61 @@ def RevPolarityStandardise(ras_2darray, mask_2darray,novalue_data):
     standardised_array = (max_val - ras_2darray) / (max_val - min_val)
     return standardised_array
 
-# Function RasteriseAreaThresholds
-# Input: 
-#      header_values - header values of the raster file, [ncols, nrows, xllcorner, yllcorner, cellsize, nodatavalue]
-#      header_text - header text of the raster file, lines[:6]
-#      constraint_ras - path to the constraint raster file, e.g. raster_files['constraint_ras']
-#      current_dev_ras - path to the current development raster file, e.g. raster_files['current_dev_ras']
-#      constraints_tbl - path to the constraints table, e.g. table_files['constraints_tbl']
-#      coverage_threshold - parameter from the parameters table, e.g. parameters['coverage_threshold']
-# Output: None
-# 1. Read from the constraints table: layer_name, current_development_flag, and layer_threshold into variables
-#    layerRasStr, devFlag, layerThreshold
-# 2. Create a list inputCoverage containing 2D numpy arrays of the raster files named in layerRasStr
-# 3. Calculate summedThresholdArea = (coverage_threshold / 100) * (cellsize^2); cellsize is in the header file
-# 4. Calculate individual constraint threshold areas: layerThresholdArea = layerThreshold / 100 * cellsize^2
-# 5. Create a 2D numpy array summedLayerArea as the sum of all layers in inputCoverage
-#    Create a 2D numpy array outputCoverage of the same size as summedLayerArea, filled with 1s
-#    Assign 0 to elements in outputCoverage where input layer element value > layerThresholdArea, indicating 0 suitability
-#    Assign 0 to elements in outputCoverage where summedLayerArea > summedThresholdArea, indicating 0 suitability
-# 6. Write outputCoverage to a raster file with header, which is the constraint/suitability layer.
-# 7. Create a 2D numpy array currentDev of the same size as summedLayerArea, filled with zeros
-#    For layers in devFlag with value 1, assign 1 to elements in currentDev where layer value > corresponding layerThresholdArea, indicating developed.
-#     Write currentDev to a raster file with header, which is the current development layer.
-def RasteriseAreaThresholds(swap_path, header_values, header_text, constraint_ras, current_dev_ras, zone_id_ras,
-                            constraints_tbl, num_constraints, coverage_threshold):
-    #Reading Constraints Table
-    layerRasStr, devFlag, layerThreshold = pd.read_csv(constraints_tbl, usecols=[0, 1, 2]).values.T
-    #Loading Input Coverage Layers
-    inputCoverage = [np.loadtxt(os.path.join(swap_path, layerRasStr[i]), skiprows=6) for i in range(num_constraints)]
-    #Calculating Threshold Areas
-    summedThresholdArea = (coverage_threshold / 100) * (header_values[4] ** 2)
-    layerThresholdArea = [layerThreshold[i] / 100 * header_values[4] ** 2 for i in range(num_constraints)]
-    summedLayerArea = sum(inputCoverage)
-    #Creating Output Coverage
-    outputCoverage = np.ones(summedLayerArea.shape)
-    for i in range(num_constraints):
-        outputCoverage[inputCoverage[i] > layerThresholdArea[i]] = 0
-    outputCoverage[summedLayerArea > summedThresholdArea] = 0
-    #Writing Raster to File
-    with open(constraint_ras, 'w') as f:
-            f.write(''.join(header_text))
-            np.savetxt(f, outputCoverage, fmt='%1.0f')
-    #Creating Current Development Layer
-    currentDev = np.zeros(summedLayerArea.shape)
-    for i in range(num_constraints):
-        if devFlag[i] == 1:
-            currentDev[inputCoverage[i] > layerThresholdArea[i]] = 1
-    zone_id_ras = np.loadtxt(zone_id_ras, skiprows=6)
-    currentDev[zone_id_ras == header_values[-1]] = header_values[-1]
+############################################################################################################
+#Function create_constraint_ras_and_current_dev_ras: Create constraint raster and current development raster
+############################################################################################################
+def create_constraint_ras_and_current_dev_ras(path_to_data, header_values, header_text, constraint_ras, current_dev_ras, zone_id_ras,
+                                              constraints_tbl, num_constraints, coverage_threshold):
+    # Read Constraint layers
+    current_development_flag_list, layer_threshold_list, constraint_layers = read_constraint_layers(constraints_tbl, path_to_data, num_constraints)
     
-    with open(current_dev_ras, 'w') as f:
-            f.write(''.join(header_text))
-            np.savetxt(f, currentDev, fmt='%1.0f')
+    # Calculate Threshold Areas
+    constraint_threshold_area, layer_threshold_area_list = calculate_threshold_areas(header_values, coverage_threshold, layer_threshold_list, num_constraints)
+    
+    # Generate Binary Constraint Layer
+    output_constraint_layer = generate_binary_constraint_layer(constraint_layers, layer_threshold_area_list, constraint_threshold_area, num_constraints)
+    # Mask NoData Value
+    zone_id_ras_data = np.loadtxt(zone_id_ras, skiprows=6)
+    output_constraint_layer = mask_nodatavalue(output_constraint_layer, zone_id_ras_data, header_values)
+    # Write Binary Constraint Layer to File
+    write_raster_to_file(output_constraint_layer, constraint_ras, header_text[:6])
+    
+    # Create Current Development Layer
+    current_dev_layer = create_current_development_layer(constraint_layers, current_development_flag_list, layer_threshold_area_list, zone_id_ras_data, header_values, num_constraints)
+    # Write Current Development Layer to File
+    write_raster_to_file(current_dev_layer, current_dev_ras, header_text[:6])
 
+def read_constraint_layers(constraints_tbl, path_to_data, num_constraints):
+    layer_name_list, current_development_flag_list, layer_threshold_list = pd.read_csv(constraints_tbl, usecols=[0, 1, 2]).values.T
+    constraint_layers = [np.loadtxt(os.path.join(path_to_data, layer_name_list[i]), skiprows=6) for i in range(num_constraints)]
+    return current_development_flag_list, layer_threshold_list, constraint_layers
 
-#Function IRasterSetNoDataToRef: set the elements in a raster to nodata value where the reference raster is nodata
-def IRasterSetNoDataToRef(constraint_ras,header_text,mask_layer,header_values):
-    ras = np.loadtxt(constraint_ras, skiprows=6)
-    ras[mask_layer == header_values[-1]] = header_values[-1]
-    with open(constraint_ras, 'w') as f:
+def calculate_threshold_areas(header_values, coverage_threshold, layer_threshold_list, num_constraints):
+    constraint_threshold_area = (coverage_threshold / 100) * (header_values[4] ** 2)
+    layer_threshold_area_list = [layer_threshold_list[i] / 100 * header_values[4] ** 2 for i in range(num_constraints)]
+    return constraint_threshold_area, layer_threshold_area_list
+
+def generate_binary_constraint_layer(constraint_layers, layer_threshold_area_list, constraint_threshold_area, num_constraints):
+    summed_value_all_layers = sum(constraint_layers)
+    output_constraint_layer = np.ones(summed_value_all_layers.shape)
+    for i in range(num_constraints):
+        output_constraint_layer[constraint_layers[i] > layer_threshold_area_list[i]] = 0
+    output_constraint_layer[summed_value_all_layers > constraint_threshold_area] = 0
+    return output_constraint_layer
+
+def write_raster_to_file(raster, file_path, header_text, fmt='%d'):
+    with open(file_path, 'w') as f:
         f.write(''.join(header_text))
-        np.savetxt(f, ras, fmt='%1.0f')
+        np.savetxt(f, raster, fmt=fmt)
+
+def create_current_development_layer(constraint_layers, current_development_flag_list, layer_threshold_area_list, zone_id_ras, header_values, num_constraints):
+    current_dev_layer = np.zeros(constraint_layers[0].shape)
+    for i in range(num_constraints):
+        if current_development_flag_list[i] == 1:
+            current_dev_layer[constraint_layers[i] > layer_threshold_area_list[i]] = 1
+    current_dev_layer[zone_id_ras == header_values[-1]] = header_values[-1]
+    return current_dev_layer
+
+def mask_nodatavalue(ras,mask_layer,header_values):
+    ras[mask_layer == header_values[-1]] = header_values[-1]
+    return ras

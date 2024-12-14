@@ -13,7 +13,7 @@ def run_model(num_zones,parameters, table_files, raster_files,header_values):
     density_calculation_type = parameters['density_calculation_type']
 
     # Choose the density calculation type and get the zone data accordingly
-    zone_ids,zone_codes, zone_cur_pop, zone_fut_pop, zone_cur_dwellings, zone_fut_dwellings, dwellings_per_hectare = \
+    zone_ids,zone_codes, zone_cur_pop, zone_fut_pop, dwellings_increase, dwellings_per_hectare = \
         get_zone_data(density_calculation_type, table_files, parameters)   
 
     # Read the patch ID, suitability, cell suitability and current development rasters
@@ -26,11 +26,11 @@ def run_model(num_zones,parameters, table_files, raster_files,header_values):
     num_req_cells_zones = [calculate_required_cells(density_calculation_type,
                              current_dev_ras, zone_id_ras, zone_label,
                              zone_cur_pop[zone_label], zone_fut_pop[zone_label],
-                             zone_cur_dwellings[zone_label], zone_fut_dwellings[zone_label],
+                             dwellings_increase[zone_label],
                              dwellings_per_hectare) for zone_label in zone_ids]
         
     #Find overflow zones: assuming patch id are integers
-    overFlow_array = find_overflow_zones(dev_patchid_array, zone_id_ras, zone_ids, num_req_cells_zones)
+    overFlow_array,num_suitCells = find_overflow_zones(dev_patchid_array, zone_id_ras, zone_ids, num_req_cells_zones)
     
     #number of non overflow zones
     num_nonOverflowZones = (overFlow_array==False).sum()
@@ -52,6 +52,14 @@ def run_model(num_zones,parameters, table_files, raster_files,header_values):
         for zone_id in overflow_zones_ids:
             new_development = develop_one_overflow_zone(current_dev_ras,dev_patchid_array, zone_id_ras, zone_id)    
     
+    # Write admin zone diagnostic table to csv
+    # Calculate the developed number of cells: for non-overflow zones, it is the required number of cells; 
+    # for overflow zones, it is the number of cells in the zone num_suitCells
+
+    write_zone_diagnostic_table(zone_ids, zone_codes, overFlow_array, zone_cur_pop, zone_fut_pop, 
+                                dwellings_increase, dwellings_per_hectare, num_req_cells_zones, 
+                                num_suitCells, current_dev_ras, header_values, table_files)
+
     return new_development
 
 ####################################################################################################################
@@ -64,7 +72,7 @@ def run_model(num_zones,parameters, table_files, raster_files,header_values):
 # If density_calculation_type is 3, it reads the current and future dwellings data and the dwellings per hectare value.
 # If density_calculation_type is 4, TBC.
 def get_zone_data(density_calculation_type, table_files, parameters):
-    zone_cur_pop, zone_fut_pop, zone_cur_dwellings, zone_fut_dwellings, dwellings_per_hectare = (0, 0, 0, 0, 0)
+    zone_cur_pop, zone_fut_pop, dwellings_increase, dwellings_per_hectare = (0, 0, 0, 0)
     # Validate the density calculation type
     if density_calculation_type not in {1, 2, 3, 4}:
         raise ValueError("density_calculation_type must be an integer in {1, 2, 3, 4}")
@@ -75,14 +83,14 @@ def get_zone_data(density_calculation_type, table_files, parameters):
         zone_ids,zone_codes, zone_cur_pop, zone_fut_pop = pd.read_csv(table_files['population_tbl'], usecols=[0, 1, 2, 3]).values.T
         
     # Option 2 - Calculate required development based on dwellings change
-    elif density_calculation_type == 2:
-        # Read from dwellings.csv admin_zone, current_dwellings, future_dwellings
-        zone_ids,zone_codes, zone_cur_dwellings, zone_fut_dwellings = pd.read_csv(table_files['dwellings_tbl'], usecols=[0, 1, 2, 3]).values.T
-        zone_cur_pop, zone_fut_pop = pd.read_csv(table_files['population_tbl'], usecols=[2, 3]).values.T
+    # elif density_calculation_type == 2:
+    #     # Read from dwellings.csv admin_zone, current_dwellings, future_dwellings
+    #     zone_ids,zone_codes, dwellings_increase = pd.read_csv(table_files['dwellings_tbl'], usecols=[0, 1, 2]).values.T
+    #     zone_cur_pop, zone_fut_pop = pd.read_csv(table_files['population_tbl'], usecols=[2, 3]).values.T
     
     # Option 3 - Calculate required development based on dwellings change and dwellings per hectare
     elif density_calculation_type == 3:
-        zone_ids,zone_codes, zone_cur_dwellings, zone_fut_dwellings = pd.read_csv(table_files['dwellings_tbl'], usecols=[0, 1, 2, 3]).values.T
+        zone_ids,zone_codes, dwellings_increase = pd.read_csv(table_files['dwellings_tbl'], usecols=[0, 1, 2]).values.T
         dwellings_per_hectare = parameters['dwellings_per_hectare']
         zone_cur_pop, zone_fut_pop = pd.read_csv(table_files['population_tbl'], usecols=[2, 3]).values.T
     
@@ -90,14 +98,30 @@ def get_zone_data(density_calculation_type, table_files, parameters):
     elif density_calculation_type == 4:
         pass
     
-    return zone_ids,zone_codes, zone_cur_pop, zone_fut_pop, zone_cur_dwellings, zone_fut_dwellings, dwellings_per_hectare
+    return zone_ids,zone_codes, zone_cur_pop, zone_fut_pop, dwellings_increase, dwellings_per_hectare
 
 # Function find_overflow_zones: This function finds the overflow zones based on the number of required development cells.
 def find_overflow_zones(dev_patchid_array, zone_id_ras, adminzone_idx, num_req_cells_zones):
     num_suitCells = [(dev_patchid_array[zone_id_ras == zone_label] > 0).sum() for zone_label in adminzone_idx]
     overFlow_array = np.asarray(num_suitCells) < np.asarray(num_req_cells_zones)
-    return overFlow_array.flatten()
+    return overFlow_array.flatten(),num_suitCells
 
+def write_zone_diagnostic_table(zone_ids, zone_codes, overFlow_array, zone_cur_pop, zone_fut_pop, dwellings_increase, dwellings_per_hectare, num_req_cells_zones, num_suitCells, current_dev_ras, header_values, table_files):
+    developed_cells = [num_req_cells_zones[zone_id] if not overFlow_array[zone_id] else num_suitCells[zone_id] for zone_id in zone_ids]
+
+    areas_required = np.array(num_req_cells_zones) * header_values[4]**2
+
+    areas_developed = np.array(developed_cells) * header_values[4]**2
+    current_pop_cell_density = zone_cur_pop / current_dev_ras[current_dev_ras==1].sum()
+    future_pop_cell_density = (zone_fut_pop-zone_cur_pop) / developed_cells
+
+    zone_diagnostic_tbl = pd.DataFrame({'AdminZone': zone_codes, 'Overflow': overFlow_array, 
+                                        'CurrentPopulation': zone_cur_pop, 'FuturePopulation': zone_fut_pop, 
+                                        'DwellingsIncrease': dwellings_increase, 'DwellingsPerHectare': dwellings_per_hectare, 
+                                        'RequiredDevelopmentCells': num_req_cells_zones,'ActualDevelopedCells': developed_cells,
+                                        'AreaRequired':areas_required, 'AreaDeveloped':areas_developed, 
+                                        'CurrentPopCellDensity':current_pop_cell_density, 'FuturePopCellDensity':future_pop_cell_density,})
+    zone_diagnostic_tbl.to_csv(table_files['zone_diagnostic_tbl'], index=False)
 ####################################################################################################################
 # Functions related to calculate required number of development cells
 ####################################################################################################################
@@ -140,42 +164,40 @@ def calculate_req_cells_population(current_dev_ras, zone_id_ras, zone_label, zon
 # Function calculate_req_cells_dwellings: For one administrative zone, calculate the required development cells 
 # based on the given increase number of dwellings. It calculates the number of current developed cells, the 
 # current dwellings per cell, and then calculates the required number of development cells based on the increase 
-# in the number of dwellings.
-def calculate_req_cells_dwellings(current_dev_ras, zone_id_ras, zone_label, zone_cur_dwellings, zone_fut_dwellings):
-    # Calculate number of current developed cells in the admin zone
-    num_current_developed_cells = sum_current_cells(current_dev_ras, zone_id_ras, zone_label)
+# in the number of dwellings. TBC
+# def calculate_req_cells_dwellings(current_dev_ras, zone_id_ras, zone_label, dwellings_increase):
+#     # Calculate number of current developed cells in the admin zone
+#     num_current_developed_cells = sum_current_cells(current_dev_ras, zone_id_ras, zone_label)
     
-    # Handle case where num_current_developed_cells is zero
-    if num_current_developed_cells == 0:
-        print('The number of current developed cells is zero.')
-        return 0
+#     # Handle case where num_current_developed_cells is zero
+#     if num_current_developed_cells == 0:
+#         print('The number of current developed cells is zero.')
+#         return 0
     
-    # Calculate current dwellings per cell
-    cur_dwellings_per_cell = zone_cur_dwellings / num_current_developed_cells if zone_cur_dwellings > 0 else 0
+#     # Calculate current dwellings per cell
+#     cur_dwellings_per_cell = zone_cur_dwellings / num_current_developed_cells if zone_cur_dwellings > 0 else 0
     
-    # Handle case where cur_dwellings_per_cell is zero or negative
-    if cur_dwellings_per_cell <= 0:
-        print('The current dwellings per cell is zero or negative.')
-        return 0
+#     # Handle case where cur_dwellings_per_cell is zero or negative
+#     if cur_dwellings_per_cell <= 0:
+#         print('The current dwellings per cell is zero or negative.')
+#         return 0
     
-    # Calculate required number of development cells by dwellings
-    dwelling_increase = zone_fut_dwellings - zone_cur_dwellings
-    if dwelling_increase <= 0:
-        print('The dwelling increase is zero or negative.')
-        return 0
-    else:
-        num_cells = np.ceil(dwelling_increase / cur_dwellings_per_cell)
+#     # Calculate required number of development cells by dwellings
+#     dwelling_increase = zone_fut_dwellings - zone_cur_dwellings
+#     if dwelling_increase <= 0:
+#         print('The dwelling increase is zero or negative.')
+#         return 0
+#     else:
+#         num_cells = np.ceil(dwelling_increase / cur_dwellings_per_cell)
     
-    return num_cells
+#     return num_cells
 
 # Function calculate_req_cells_DwellingsPerHectare: For one administrative zone, calculate the required development cells
 # based on the given increase in the number of dwellings and the specified dwellings per hectare value. 
-def calculate_req_cells_DwellingsPerHectare(zone_cur_dwellings, zone_fut_dwellings, dwellings_per_hectare):
-    # Calculate the increase in dwellings
-    dwelling_increase = zone_fut_dwellings - zone_cur_dwellings
+def calculate_req_cells_DwellingsPerHectare(dwellings_increase, dwellings_per_hectare):
     
     # Handle case where dwelling_increase is zero or negative
-    if dwelling_increase <= 0:
+    if dwellings_increase <= 0:
         print('The dwelling increase is zero or negative.')
         return 0
     
@@ -185,7 +207,7 @@ def calculate_req_cells_DwellingsPerHectare(zone_cur_dwellings, zone_fut_dwellin
         return 0
     
     # Calculate the required number of cells
-    num_cells = np.ceil(dwelling_increase / dwellings_per_hectare)
+    num_cells = np.ceil(dwellings_increase / dwellings_per_hectare)
         
     return num_cells
 
@@ -199,20 +221,20 @@ def calculate_req_cells_DwellingsPerHectare(zone_cur_dwellings, zone_fut_dwellin
 def calculate_required_cells(density_calculation_type,
                              current_dev_ras, zone_id_ras, zone_label,
                              zone_cur_pop=0, zone_fut_pop=0,
-                             zone_cur_dwellings=0, zone_fut_dwellings=0,
+                             dwellings_increase=0,
                              dwellings_per_hectare=0):
        
     # Calculate required cells based on population
     if density_calculation_type == 1:
         num_req_cells = calculate_req_cells_population(current_dev_ras, zone_id_ras, zone_label, zone_cur_pop, zone_fut_pop)
     
-    # Calculate required cells based on dwellings
-    elif density_calculation_type == 2:
-        num_req_cells = calculate_req_cells_dwellings(current_dev_ras, zone_id_ras, zone_label, zone_cur_dwellings, zone_fut_dwellings)
+    # # Calculate required cells based on dwellings
+    # elif density_calculation_type == 2:
+    #     num_req_cells = calculate_req_cells_dwellings(current_dev_ras, zone_id_ras, zone_label, zone_cur_dwellings, zone_fut_dwellings)
     
     # Calculate required cells based on dwellings per hectare
     elif density_calculation_type == 3:
-        num_req_cells = calculate_req_cells_DwellingsPerHectare(zone_cur_dwellings, zone_fut_dwellings, dwellings_per_hectare)
+        num_req_cells = calculate_req_cells_DwellingsPerHectare(dwellings_increase, dwellings_per_hectare)
     
     # Placeholder for future density calculation type
     elif density_calculation_type == 4:

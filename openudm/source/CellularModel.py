@@ -28,7 +28,7 @@ def run_model(num_zones,parameters, table_files, raster_files,header_values):
                              zone_cur_pop[zone_label], zone_fut_pop[zone_label],
                              dwellings_increase[zone_label],
                              dwellings_per_hectare) for zone_label in zone_ids]
-        
+
     #Find overflow zones: assuming patch id are integers
     overFlow_array,num_suitCells = find_overflow_zones(dev_patchid_array, zone_id_ras, zone_ids, num_req_cells_zones)
     
@@ -44,6 +44,7 @@ def run_model(num_zones,parameters, table_files, raster_files,header_values):
         for zone_id in nonOverflow_zones_ids:
             new_development = develop_one_non_overflow_zone(current_dev_ras, num_req_cells_zones[zone_id], dev_patchid_array, 
                                                             dev_patch_suit_array, cell_suit_ras, header_values[5])
+            
     
     #Develop overflow zones
     if num_OverflowZones > 0:
@@ -118,6 +119,7 @@ def write_zone_diagnostic_table(zone_ids, zone_codes, overFlow_array, zone_cur_p
     zone_diagnostic_tbl = pd.DataFrame({'AdminZone': zone_codes, 'Overflow': overFlow_array, 
                                         'CurrentPopulation': zone_cur_pop, 'FuturePopulation': zone_fut_pop, 
                                         'DwellingsIncrease': dwellings_increase, 'DwellingsPerHectare': dwellings_per_hectare, 
+                                        'CellsAvailable': num_suitCells, 
                                         'RequiredDevelopmentCells': num_req_cells_zones,'ActualDevelopedCells': developed_cells,
                                         'AreaRequired':areas_required, 'AreaDeveloped':areas_developed, 
                                         'CurrentPopCellDensity':current_pop_cell_density, 'FuturePopCellDensity':future_pop_cell_density,})
@@ -328,7 +330,9 @@ def develop_neighbouring_cell(neighbours,seed_cells,potential_cells,new_developm
     seed_cells.add(new_cell_idx)
     new_development_ras[new_cell_idx[0], new_cell_idx[1]] = 1
     num_new_dev_cells += 1
-    return new_cell_idx,seed_cells, potential_cells, new_development_ras, num_new_dev_cells
+    neighbours.remove(new_cell_idx)
+    neighbours = set(neighbours)
+    return new_cell_idx,seed_cells, potential_cells, new_development_ras, num_new_dev_cells,neighbours
 
 
 # Function develop_one_non_overflow_zone: Given the current development raster, the required number of cells in the zone,
@@ -357,7 +361,6 @@ def develop_one_non_overflow_zone(current_dev_ras, zone_required_cells, dev_patc
             if num_new_dev_cells + num_patchcells <= zone_required_cells:
                 num_new_dev_cells, new_development_ras = develop_entire_patch(new_development_ras, dev_patchid_array, patch_id, num_new_dev_cells,num_patchcells)
                 continue
-            
             #If all cells of the patch developed is more than enough, develop from the cell in the patch with highest cell sutiability
             else:
                 # Initialize for developing seed & neighbours in the patch
@@ -374,29 +377,36 @@ def develop_one_non_overflow_zone(current_dev_ras, zone_required_cells, dev_patc
 
                     #Find and develop seed - the cell with highest suitability in the potential cells
                     seed_cell_idx,new_development_ras,num_new_dev_cells, seed_cells, potential_cells = develop_seed_cell(new_development_ras, cell_suit_ras, num_new_dev_cells,potential_cells,seed_cells)
+                    
                     # Test if after developing the seed cell, the required number of cells is already met
                     if num_new_dev_cells == zone_required_cells:
                         break
 
                     # Find the neighbours of the last added seed cell:
                     cell_neighbours = find_neighbours(seed_cell_idx, potential_cells)
+                    
                     # Update the neighbours to include the new cell neighours; update potential cells to remove the new cell neighbours
                     neighbours, potential_cells = update_neighbours(cell_neighbours,neighbours,potential_cells)
 
                     # If the last added seed cell has no neighbours, find a non-adjacent new seed cell in rest of patch cells with the highest suitability
                     if neighbours == set():
+                        
                         continue
                     # If the last added seed cell has neighbours, develop the neighbours
                     else:
                         while len(neighbours)>0:
-                            new_cell_idx,seed_cells, potential_cells, new_development_ras, num_new_dev_cells = develop_neighbouring_cell(neighbours,seed_cells,
+                            new_cell_idx,seed_cells, potential_cells, new_development_ras, num_new_dev_cells,neighbours = develop_neighbouring_cell(neighbours,seed_cells,
                                                                                                                          potential_cells,new_development_ras,cell_suit_ras,num_new_dev_cells)
+                            
+                            
                             if num_new_dev_cells == zone_required_cells:
                                 break
                             # Find the neighbours of the last added seed cell:
                             cell_neighbours = find_neighbours(new_cell_idx, potential_cells)
+                            
                             # Update the neighbours to include the new cell neighours; update potential cells to remove the new cell neighbours
                             neighbours, potential_cells = update_neighbours(cell_neighbours,neighbours,potential_cells)
+                            
     return new_development_ras
 
 

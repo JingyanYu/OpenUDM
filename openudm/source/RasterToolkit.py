@@ -5,18 +5,24 @@ import os
 ############################################################################################################
 # Functions related find_zone_dev_patches
 ############################################################################################################
-def Standardise(ras_2darray, mask_2darray,novalue_data):
+def Standardise(ras_2darray, mask_2darray,novalue_data,layer_name):
     #standardise the values of matrix to a range of 0 to 1
     valid_data = ras_2darray[mask_2darray != novalue_data]
+    #handle the exception when there is no valid data inside the valid area
+    if novalue_data in valid_data:
+        print(layer_name,'No valid data inside the valid area')
     min_val = np.min(valid_data)
     max_val = np.max(valid_data)
     standardised_array = (ras_2darray - min_val) / (max_val - min_val)
     return standardised_array
 
 #Function RevPolarityStandardise
-def RevPolarityStandardise(ras_2darray, mask_2darray,novalue_data):
+def RevPolarityStandardise(ras_2darray, mask_2darray,novalue_data,layer_name):
     #standardise the values of matrix to a range of 0 to 1
     valid_data = ras_2darray[mask_2darray != novalue_data]
+    #handle the exception when there is no valid data inside the valid area
+    if novalue_data in valid_data:
+        print(layer_name,'No valid data inside the valid area')
     min_val = np.min(valid_data)
     max_val = np.max(valid_data)
     standardised_array = (max_val - ras_2darray) / (max_val - min_val)

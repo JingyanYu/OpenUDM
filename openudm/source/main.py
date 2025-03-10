@@ -147,9 +147,9 @@ def standardize_attractor_layers(num_attractors, table_files, path_to_data, path
             raise ValueError(f"Dimension mismatch: Attractor layer {attractorflag_list[i][0]} has shape {attractor_layer.shape}, expected {mask_shape}")
         
         if rev_attractor_flag == 0:
-            standarised_attractor_layer = rt.Standardise(attractor_layer, mask_layer, nodatavalue)
+            standarised_attractor_layer = rt.Standardise(attractor_layer, mask_layer, nodatavalue,attractorflag_list[i][0])
         elif rev_attractor_flag == 1:
-            standarised_attractor_layer = rt.RevPolarityStandardise(attractor_layer, mask_layer, nodatavalue)
+            standarised_attractor_layer = rt.RevPolarityStandardise(attractor_layer, mask_layer, nodatavalue,attractorflag_list[i][0])
         
         attractor_output_path = os.path.join(path_to_output, 'std_' + attractorflag_list[i][0])
         with open(attractor_output_path, 'w') as f:

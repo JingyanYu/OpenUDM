@@ -137,8 +137,13 @@ Data/zone*
 # IntelliJ
 .idea
 
+*.asc
+*.csv
+__main__.py
+*.ipynb
 # Example to include specific files
 !main.py
 !MultiCriteriaEval.py
 !RasterToolkit.py
 !DevZones.py
+!CellularModel.py

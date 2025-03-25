@@ -12,56 +12,68 @@ def run_model(num_zones,parameters, table_files, raster_files,header_values):
     maximum_plot_size = parameters['maximum_plot_size']
     density_calculation_type = parameters['density_calculation_type']
 
-    # Choose the density calculation type and get the zone data accordingly
-    zone_ids,zone_codes, zone_cur_pop, zone_fut_pop, dwellings_increase, dwellings_per_hectare = \
-        get_zone_data(density_calculation_type, table_files, parameters)   
-
     # Read the patch ID, suitability, cell suitability and current development rasters
     dev_patchid_array = np.loadtxt(raster_files['dev_patch_id_ras'], skiprows=6)
     dev_patch_suit_array = np.loadtxt(raster_files['dev_patch_suit_ras'], skiprows=6)
     cell_suit_ras = np.loadtxt(raster_files['cell_suit_ras'], skiprows=6)
     current_dev_ras = np.loadtxt(raster_files['current_dev_ras'], skiprows=6)
-        
-    #CalculateRequiredDevelopment
-    num_req_cells_zones = [calculate_required_cells(density_calculation_type,
-                             current_dev_ras, zone_id_ras, zone_label,
-                             zone_cur_pop[zone_label], zone_fut_pop[zone_label],
-                             dwellings_increase[zone_label],
-                             dwellings_per_hectare) for zone_label in zone_ids]
 
-    #Find overflow zones: assuming patch id are integers
-    overFlow_array,num_suitCells = find_overflow_zones(dev_patchid_array, zone_id_ras, zone_ids, num_req_cells_zones)
-    
-    #number of non overflow zones
-    num_nonOverflowZones = (overFlow_array==False).sum()
-    num_OverflowZones = num_zones - num_nonOverflowZones
-    
-    #Develop non-overflow zones
-    if num_nonOverflowZones > 0:
-        print('Developing ', num_nonOverflowZones, ' non-overflow zones.')
-        # get the indices of non-overflow zones
-        nonOverflow_zones_ids = zone_ids[overFlow_array==False]
-        for zone_id in nonOverflow_zones_ids:
-            new_development = develop_one_non_overflow_zone(current_dev_ras, num_req_cells_zones[zone_id], dev_patchid_array, 
-                                                            dev_patch_suit_array, cell_suit_ras, header_values[5])
+    if density_calculation_type == 3:
+        print('Uniform density calculation - density per hectare:', parameters['dwellings_per_hectare'])
+        # Choose the density calculation type and get the zone data accordingly
+        zone_ids,zone_codes, zone_cur_pop, zone_fut_pop, dwellings_increase, dwellings_per_hectare = \
+            get_zone_data(density_calculation_type, table_files, parameters)   
+
             
-    
-    #Develop overflow zones
-    if num_OverflowZones > 0:
-        print('Developing', num_OverflowZones, 'overflow zones.')
-        overflow_zones_ids = zone_ids[overFlow_array==True]
-        for zone_id in overflow_zones_ids:
-            new_development = develop_one_overflow_zone(current_dev_ras,dev_patchid_array, zone_id_ras, zone_id)    
-    
-    # Write admin zone diagnostic table to csv
-    # Calculate the developed number of cells: for non-overflow zones, it is the required number of cells; 
-    # for overflow zones, it is the number of cells in the zone num_suitCells
+        #CalculateRequiredDevelopment
+        num_req_cells_zones = [calculate_required_cells(density_calculation_type,
+                                current_dev_ras, zone_id_ras, zone_label,
+                                zone_cur_pop[zone_label], zone_fut_pop[zone_label],
+                                dwellings_increase[zone_label],
+                                dwellings_per_hectare) for zone_label in zone_ids]
 
-    write_zone_diagnostic_table(zone_ids, zone_codes, overFlow_array, zone_cur_pop, zone_fut_pop, 
-                                dwellings_increase, dwellings_per_hectare, num_req_cells_zones, 
-                                num_suitCells, current_dev_ras, header_values, table_files)
+        #Find overflow zones: assuming patch id are integers
+        overFlow_array,num_suitCells = find_overflow_zones(dev_patchid_array, zone_id_ras, zone_ids, num_req_cells_zones)
+        
+        #number of non overflow zones
+        num_nonOverflowZones = (overFlow_array==False).sum()
+        num_OverflowZones = num_zones - num_nonOverflowZones
+        
+        #Develop non-overflow zones
+        if num_nonOverflowZones > 0:
+            print('Developing ', num_nonOverflowZones, ' non-overflow zones.')
+            # get the indices of non-overflow zones
+            nonOverflow_zones_ids = zone_ids[overFlow_array==False]
+            for zone_id in nonOverflow_zones_ids:
+                new_development = develop_one_non_overflow_zone(current_dev_ras, num_req_cells_zones[zone_id], dev_patchid_array, 
+                                                                dev_patch_suit_array, cell_suit_ras, header_values[5])
+                
+        
+        #Develop overflow zones
+        if num_OverflowZones > 0:
+            print('Developing', num_OverflowZones, 'overflow zones.')
+            overflow_zones_ids = zone_ids[overFlow_array==True]
+            for zone_id in overflow_zones_ids:
+                new_development = develop_one_overflow_zone(current_dev_ras,dev_patchid_array, zone_id_ras, zone_id)    
+        
+        # Write admin zone diagnostic table to csv
+        # Calculate the developed number of cells: for non-overflow zones, it is the required number of cells; 
+        # for overflow zones, it is the number of cells in the zone num_suitCells
 
-    return new_development
+        write_zone_diagnostic_table(zone_ids, zone_codes, overFlow_array, zone_cur_pop, zone_fut_pop, 
+                                    dwellings_increase, dwellings_per_hectare, num_req_cells_zones, 
+                                    num_suitCells, current_dev_ras, header_values, table_files)
+
+        return new_development
+    
+    elif density_calculation_type == 4:
+        print('Variable density calculation.')
+        density_ras = np.loadtxt(raster_files['density_ras'], skiprows=6)
+        zone_ids,zone_codes, zone_cur_pop, zone_fut_pop, dwellings_increase = get_zone_data_VD(density_calculation_type, table_files)
+        new_development,num_new_dev_cells = develop_one_non_overflow_zone_VariableDensity(current_dev_ras, density_ras, dwellings_increase, dev_patchid_array, 
+                                                  dev_patch_suit_array, cell_suit_ras, header_values[5])
+        
+        return new_development
 
 ####################################################################################################################
 # Functions related to Runmodel
@@ -107,7 +119,8 @@ def find_overflow_zones(dev_patchid_array, zone_id_ras, adminzone_idx, num_req_c
     overFlow_array = np.asarray(num_suitCells) < np.asarray(num_req_cells_zones)
     return overFlow_array.flatten(),num_suitCells
 
-def write_zone_diagnostic_table(zone_ids, zone_codes, overFlow_array, zone_cur_pop, zone_fut_pop, dwellings_increase, dwellings_per_hectare, num_req_cells_zones, num_suitCells, current_dev_ras, header_values, table_files):
+def write_zone_diagnostic_table(zone_ids, zone_codes, overFlow_array, zone_cur_pop, zone_fut_pop, dwellings_increase,
+                                 dwellings_per_hectare, num_req_cells_zones, num_suitCells, current_dev_ras, header_values, table_files):
     developed_cells = [num_req_cells_zones[zone_id] if not overFlow_array[zone_id] else num_suitCells[zone_id] for zone_id in zone_ids]
 
     areas_required = np.array(num_req_cells_zones) * header_values[4]**2
@@ -363,6 +376,7 @@ def develop_one_non_overflow_zone(current_dev_ras, zone_required_cells, dev_patc
                 continue
             #If all cells of the patch developed is more than enough, develop from the cell in the patch with highest cell sutiability
             else:
+                #print('Developing cells in the patch.','Patch ID:',patch_id,'Number of new developed cells:',num_new_dev_cells)
                 # Initialize for developing seed & neighbours in the patch
                 # Initialize potential cells for development to be all cells in the patch
                 potential_cells = initialize_patch_potential_cells(dev_patchid_array, patch_id)
@@ -406,7 +420,8 @@ def develop_one_non_overflow_zone(current_dev_ras, zone_required_cells, dev_patc
                             
                             # Update the neighbours to include the new cell neighours; update potential cells to remove the new cell neighbours
                             neighbours, potential_cells = update_neighbours(cell_neighbours,neighbours,potential_cells)
-                            
+                break       
+    print('Number of new development cells:',num_new_dev_cells)
     return new_development_ras
 
 
@@ -423,3 +438,169 @@ def develop_one_overflow_zone(current_dev_ras,dev_patchid_array, zone_id_ras, zo
     new_development_ras[(dev_patchid_array > 0) & (zone_id_ras == zone_label)] = 1
 
     return new_development_ras
+
+
+#####################################################################################################################
+# Functions related to Variable Density
+#####################################################################################################################
+# def get_zone_data_VD(density_calculation_type, table_files):
+#     zone_cur_pop, zone_fut_pop, dwellings_increase = (0, 0, 0)
+#     # Validate the density calculation type
+#     if density_calculation_type not in {1, 2, 3, 4}:
+#         raise ValueError("density_calculation_type must be an integer in {1, 2, 3, 4}")
+    
+#     # Option 4 - Placeholder for variable density calculation methods
+#     elif density_calculation_type == 4:
+#         zone_ids,zone_codes, dwellings_increase = pd.read_csv(table_files['dwellings_tbl'], usecols=[0, 1, 2]).values.T
+#         zone_cur_pop, zone_fut_pop = pd.read_csv(table_files['population_tbl'], usecols=[2, 3]).values.T
+    
+#     return zone_ids,zone_codes, zone_cur_pop, zone_fut_pop, dwellings_increase
+
+# def write_zone_diagnostic_table_VD(zone_ids, zone_codes, zone_cur_pop, zone_fut_pop, dwellings_increase,
+#                                  num_req_cells_zones, num_suitCells, current_dev_ras, header_values, table_files):
+#     developed_cells = [num_req_cells_zones[zone_id] if not overFlow_array[zone_id] else num_suitCells[zone_id] for zone_id in zone_ids]
+
+#     areas_required = np.array(num_req_cells_zones) * header_values[4]**2
+
+#     areas_developed = np.array(developed_cells) * header_values[4]**2
+#     current_pop_cell_density = zone_cur_pop / current_dev_ras[current_dev_ras==1].sum()
+#     future_pop_cell_density = (zone_fut_pop-zone_cur_pop) / developed_cells
+
+#     zone_diagnostic_tbl = pd.DataFrame({'AdminZone': zone_codes, 'Overflow': overFlow_array, 
+#                                         'CurrentPopulation': zone_cur_pop, 'FuturePopulation': zone_fut_pop, 
+#                                         'DwellingsIncrease': dwellings_increase, 'DwellingsPerHectare': dwellings_per_hectare, 
+#                                         'CellsAvailable': num_suitCells, 
+#                                         'RequiredDevelopmentCells': num_req_cells_zones,'ActualDevelopedCells': developed_cells,
+#                                         'AreaRequired':areas_required, 'AreaDeveloped':areas_developed, 
+#                                         'CurrentPopCellDensity':current_pop_cell_density, 'FuturePopCellDensity':future_pop_cell_density,})
+#     zone_diagnostic_tbl.to_csv(table_files['zone_diagnostic_tbl'], index=False)
+
+
+# Function get_patch_dwellings: Given the patch ID array, the density raster, and the patch indices,
+# this function returns the total dwellings of cells with the specified patch indices.
+def get_patch_dwellings(dev_patchid_array, density_ras, patch_idx):
+    if len(patch_idx) == 0:
+        print('The patch indices are empty.')
+        return np.array([])
+    else:
+        patch_dwellings = np.array([density_ras[dev_patchid_array == patch].sum() for patch in patch_idx])
+        return patch_dwellings
+
+def develop_entire_patch_VD(new_development_ras, dev_patchid_array, patch_id, 
+                            num_new_dev_cells,num_patchcells,
+                            num_new_dwellings, num_patch_dwellings):
+    num_new_dwellings += num_patch_dwellings
+    num_new_dev_cells += num_patchcells
+    new_development_ras[dev_patchid_array == patch_id] = 1
+    return num_new_dwellings, num_new_dev_cells, new_development_ras
+
+
+def develop_seed_cell_VD(new_development_ras, cell_suit_ras, num_new_dev_cells,potential_cells,seed_cells,num_new_dwellings,density_ras):
+    potential_cells_list = list(potential_cells)
+    cell_suit = [cell_suit_ras[cell] for cell in potential_cells_list]
+    max_idx = np.argmax(cell_suit)
+    seed_cell_idx = potential_cells_list[max_idx]
+    seed_cells.add(seed_cell_idx)
+    potential_cells.remove(seed_cell_idx)
+    new_development_ras[seed_cell_idx[0], seed_cell_idx[1]] = 1
+    num_new_dev_cells += 1
+    num_new_dwellings += density_ras[seed_cell_idx[0], seed_cell_idx[1]]
+    return seed_cell_idx,new_development_ras,num_new_dev_cells, seed_cells, potential_cells,num_new_dwellings
+
+def develop_neighbouring_cell_VD(neighbours,seed_cells,potential_cells,new_development_ras,cell_suit_ras,num_new_dev_cells,density_ras,num_new_dwellings):
+    neighbours = list(neighbours)
+    neighbour_suit = [cell_suit_ras[cell] for cell in neighbours]
+    max_idx = np.argmax(neighbour_suit)
+    new_cell_idx = neighbours[max_idx]
+    seed_cells.add(new_cell_idx)
+    new_development_ras[new_cell_idx[0], new_cell_idx[1]] = 1
+    num_new_dev_cells += 1
+    neighbours.remove(new_cell_idx)
+    neighbours = set(neighbours)
+    num_new_dwellings += density_ras[new_cell_idx[0], new_cell_idx[1]]
+    return new_cell_idx,seed_cells, potential_cells, new_development_ras, num_new_dev_cells,neighbours,num_new_dwellings
+
+
+
+def develop_one_non_overflow_zone_VariableDensity(current_dev_ras, density_ras, dwellings_increase, dev_patchid_array, 
+                                                  dev_patch_suit_array, cell_suit_ras, nodata_value):
+    # Initialize new development raster to be the copy of current development raster
+    new_development_ras = initialize_development_raster(current_dev_ras)
+    num_new_dev_cells = 0
+    num_new_dwellings = 0
+    
+    # Get patch indices and suitability - prepare to rank patches by average patch suitability
+    patch_idx = get_patch_indices(dev_patchid_array, nodata_value)
+    patch_suit = get_patch_suitability(dev_patchid_array, dev_patch_suit_array, patch_idx)
+    
+    # Sort patch indices by patch suitability 
+    patch_idx = sort_patch_indices_by_suitability(patch_idx, patch_suit)
+    
+    # Develop the zone patch by patch
+    while num_new_dwellings < dwellings_increase:
+        for patch_id in reversed(patch_idx):
+            #Find the number of dwellings in the patch
+            num_patch_dwellings = density_ras[dev_patchid_array == patch_id].sum()  
+
+            #Calculate the number of cells in the patch
+            num_patchcells = (dev_patchid_array == patch_id).sum()
+
+            # When developing all cells of a patch is still insufficient, develop the entire patch
+            if num_new_dwellings + num_patch_dwellings <= dwellings_increase:
+                # print('Developing entire patch.')
+                
+                num_new_dwellings, num_new_dev_cells, new_development_ras = develop_entire_patch_VD(new_development_ras, dev_patchid_array, patch_id, 
+                                                                              num_new_dev_cells,num_patchcells, num_new_dwellings, num_patch_dwellings)
+                
+                # print('Patch ID:',patch_id,'Patch dwellings:',num_patch_dwellings,'Number of new dwellings:',num_new_dwellings)
+                continue
+            #If all cells of the patch developed is more than enough, develop from the cell in the patch with highest cell sutiability
+            else:
+                # print('Developing cells in the patch.','Patch ID:',patch_id,'Number of new dwellings:',num_new_dwellings)
+                # Initialize for developing seed & neighbours in the patch
+                # Initialize potential cells for development to be all cells in the patch
+                potential_cells = initialize_patch_potential_cells(dev_patchid_array, patch_id)
+                # Initialize neighbours
+                neighbours = set()
+                # Initialize seed cells
+                seed_cells = set()
+
+                # If the number of development cells not met, develop the rest of the cells in the patch
+                while num_new_dwellings < dwellings_increase:
+
+
+                    #Find and develop seed - the cell with highest suitability in the potential cells
+                    seed_cell_idx,new_development_ras,num_new_dev_cells, seed_cells, potential_cells,num_new_dwellings = \
+                          develop_seed_cell_VD(new_development_ras,cell_suit_ras, num_new_dev_cells,potential_cells,seed_cells,num_new_dwellings,density_ras)
+                    # print('Seed cell developed:',seed_cell_idx,'Number of new dwellings:',num_new_dwellings)
+                    # Test if after developing the seed cell, the required number of cells is already met
+                    if num_new_dwellings >= dwellings_increase:
+                        break
+
+                    # Find the neighbours of the last added seed cell:
+                    cell_neighbours = find_neighbours(seed_cell_idx, potential_cells)
+                    # print('Found cell neighbours:',cell_neighbours)
+                    # Update the neighbours to include the new cell neighours; update potential cells to remove the new cell neighbours
+                    neighbours, potential_cells = update_neighbours(cell_neighbours,neighbours,potential_cells)
+                    # print('Neighbours:',neighbours)
+                    # If the last added seed cell has no neighbours, find a non-adjacent new seed cell in rest of patch cells with the highest suitability
+                    if neighbours == set():
+                        
+                        continue
+                    # If the last added seed cell has neighbours, develop the neighbours
+                    else:
+                        while len(neighbours)>0:
+                            new_cell_idx,seed_cells, potential_cells, new_development_ras, num_new_dev_cells,neighbours,num_new_dwellings = \
+                                develop_neighbouring_cell_VD(neighbours,seed_cells,potential_cells,new_development_ras,cell_suit_ras,num_new_dev_cells,density_ras,num_new_dwellings)
+                            # print('New cell developed:',new_cell_idx,'Number of new dwellings:',num_new_dwellings)
+                            
+                            if num_new_dwellings >= dwellings_increase:
+                                break
+                            # Find the neighbours of the last added seed cell:
+                            cell_neighbours = find_neighbours(new_cell_idx, potential_cells)
+                            
+                            # Update the neighbours to include the new cell neighours; update potential cells to remove the new cell neighbours
+                            neighbours, potential_cells = update_neighbours(cell_neighbours,neighbours,potential_cells)
+                break 
+    print('Number of new development cells:',num_new_dev_cells,'Number of new dwellings:',num_new_dwellings)  
+    return new_development_ras,num_new_dev_cells
